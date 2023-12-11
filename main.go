@@ -10,5 +10,10 @@ func main() {
 		log.Fatal(err)
 	}
 
+	err = ConnPostgre()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	RunServer()
 }

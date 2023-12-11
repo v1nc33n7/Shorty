@@ -8,6 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type KeyValue struct {
+	Key   string
+	Value string
+}
+
 type Orginal struct {
 	Url string `form:"url" binding:"required"`
 }
@@ -36,7 +41,14 @@ func ShortUrl(orginal string) (string, error) {
 	bs := h.Sum(nil)
 	newUrl := base64.StdEncoding.EncodeToString(bs)[:8]
 
-	err := rdc.AddUrl(newUrl, orginal)
+	keyvalue := KeyValue{
+		Key:   newUrl,
+		Value: orginal,
+	}
+
+	pg.pipe <- keyvalue
+	err := rdc.CacheUrl(keyvalue)
+
 	if err != nil {
 		return "", err
 	}
@@ -79,7 +91,7 @@ func RedirectUrl(c *gin.Context) {
 		return
 	}
 
-	orginalUrl, err := rdc.FindUrl(shorter.Url)
+	orginalUrl, err := rdc.FindCacheUrl(shorter.Url)
 	if err != nil {
 		c.JSON(404, gin.H{
 			"error": "Url don't exists",

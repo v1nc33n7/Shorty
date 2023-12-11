@@ -27,48 +27,23 @@ func ConnRedis(addr string) error {
 
 	_, err := rdc.Ping(ctx).Result()
 	if err != nil {
-		return fmt.Errorf("couldn't connect to redis server")
-	}
-
-	err = rdc.enableNotify()
-	if err != nil {
 		return fmt.Errorf("%v", err)
 	}
 
 	return nil
 }
 
-func (r *Redis) enableNotify() error {
-	err := r.ConfigSet(ctx, "notify-keyspace-events", "KEA")
+func (r *Redis) CacheUrl(msg KeyValue) error {
+	err := r.Set(ctx, msg.Key, msg.Value, 30*time.Second).Err()
 	if err != nil {
-		//return fmt.Errorf("couldn't config notify-keyspace-events in redis")
-	}
-
-	pubsub := r.PSubscribe(ctx, "__keyevent@0__:expired")
-	go func(redis.PubSub) {
-		for {
-			msg, err := pubsub.ReceiveMessage(ctx)
-			if err != nil {
-				log.Printf("Redis [PubSub]: Error message: %v", err)
-			}
-			log.Printf("Redis [PubSub]: Recieved: %v", msg)
-		}
-	}(*pubsub)
-
-	return nil
-}
-
-func (r *Redis) AddUrl(newUrl string, orginal string) error {
-	err := r.Set(ctx, newUrl, orginal, 10*time.Second).Err()
-	if err != nil {
-		log.Printf("Redis: Couldn't add new key %s, value %s", newUrl, orginal)
+		log.Printf("Redis: Couldn't add new key %s, value %s", msg.Key, msg.Value)
 		return err
 	}
 
 	return nil
 }
 
-func (r *Redis) FindUrl(url string) (string, error) {
+func (r *Redis) FindCacheUrl(url string) (string, error) {
 	val, err := r.Get(ctx, url).Result()
 	if err != nil {
 		log.Printf("Redis: Couldn't read key %s", url)
