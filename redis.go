@@ -2,15 +2,17 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
+const CacheDuration = 30
+
 type Redis struct {
-	*redis.Client
+	db   *redis.Client
+	pipe chan KeyValue
 }
 
 var (
@@ -23,32 +25,41 @@ func ConnRedis(addr string) error {
 		Addr:     addr,
 		Password: "",
 		DB:       0,
-	})}
+	}), make(chan KeyValue)}
 
-	_, err := rdc.Ping(ctx).Result()
+	_, err := rdc.db.Ping(ctx).Result()
 	if err != nil {
-		return fmt.Errorf("%v", err)
-	}
-
-	return nil
-}
-
-func (r *Redis) CacheUrl(msg KeyValue) error {
-	err := r.Set(ctx, msg.Key, msg.Value, 30*time.Second).Err()
-	if err != nil {
-		log.Printf("Redis: Couldn't add new key %s, value %s", msg.Key, msg.Value)
 		return err
 	}
 
+	go rdc.Run()
+
 	return nil
 }
 
-func (r *Redis) FindCacheUrl(url string) (string, error) {
-	val, err := r.Get(ctx, url).Result()
-	if err != nil {
-		log.Printf("Redis: Couldn't read key %s", url)
-		return "", err
-	}
+func (r *Redis) Run() {
+	defer r.db.Conn().Close()
+	defer close(r.pipe)
 
-	return val, nil
+	for {
+		msg := <-r.pipe
+		err := r.CacheUrl(msg)
+		if err != nil {
+			log.Fatalf("%v", err)
+			break
+		}
+	}
+}
+
+func (r *Redis) CacheUrl(msg KeyValue) error {
+	err := r.db.Set(ctx, msg.Key, msg.Value, CacheDuration*time.Second).Err()
+
+	return err
+}
+
+func (r *Redis) FindCacheUrl(msg *KeyValue) error {
+	val, err := r.db.Get(ctx, msg.Key).Result()
+	msg.Value = val
+
+	return err
 }

@@ -9,16 +9,8 @@ import (
 )
 
 type KeyValue struct {
-	Key   string
-	Value string
-}
-
-type Orginal struct {
-	Url string `form:"url" binding:"required"`
-}
-
-type Shorter struct {
-	Url string `uri:"url" binding:"required"`
+	Key   string `uri:"url"`
+	Value string `form:"url"`
 }
 
 func checkPrefix(url string) string {
@@ -32,34 +24,29 @@ func checkPrefix(url string) string {
 	return url
 }
 
-func ShortUrl(orginal string) (string, error) {
-	orginal = checkPrefix(orginal)
+func ShortUrl(msg KeyValue) (string, error) {
+	msg.Value = checkPrefix(msg.Value)
 
 	h := sha256.New()
-	h.Write([]byte(orginal))
+	h.Write([]byte(msg.Value))
 
 	bs := h.Sum(nil)
 	newUrl := base64.StdEncoding.EncodeToString(bs)[:8]
 
-	keyvalue := KeyValue{
-		Key:   newUrl,
-		Value: orginal,
-	}
+	msg.Key = newUrl
 
-	pg.pipe <- keyvalue
-	err := rdc.CacheUrl(keyvalue)
-
-	if err != nil {
-		return "", err
-	}
+	go func() {
+		pq.pipe <- msg
+		rdc.pipe <- msg
+	}()
 
 	return newUrl, nil
 }
 
 func AddShort(c *gin.Context) {
-	var orginal Orginal
+	var keyvalue KeyValue
 
-	err := c.ShouldBind(&orginal)
+	err := c.ShouldBind(&keyvalue)
 	if err != nil {
 		c.JSON(400, gin.H{
 			"error": "Use /add/?url=",
@@ -67,7 +54,7 @@ func AddShort(c *gin.Context) {
 		return
 	}
 
-	newUrl, err := ShortUrl(orginal.Url)
+	newUrl, err := ShortUrl(keyvalue)
 	if err != nil {
 		c.JSON(500, gin.H{
 			"error": "Internal error",
@@ -81,9 +68,9 @@ func AddShort(c *gin.Context) {
 }
 
 func RedirectUrl(c *gin.Context) {
-	var shorter Shorter
+	var keyvalue KeyValue
 
-	err := c.ShouldBindUri(&shorter)
+	err := c.ShouldBindUri(&keyvalue)
 	if err != nil {
 		c.JSON(400, gin.H{
 			"error": "Use /r/<code>",
@@ -91,15 +78,18 @@ func RedirectUrl(c *gin.Context) {
 		return
 	}
 
-	orginalUrl, err := rdc.FindCacheUrl(shorter.Url)
+	err = rdc.FindCacheUrl(&keyvalue)
 	if err != nil {
-		c.JSON(404, gin.H{
-			"error": "Url don't exists",
-		})
-		return
+		err = pq.FindUrl(&keyvalue)
+		if err != nil {
+			c.JSON(404, gin.H{
+				"error": "Url don't exists",
+			})
+			return
+		}
 	}
 
-	c.Redirect(301, orginalUrl)
+	c.Redirect(301, keyvalue.Value)
 }
 
 func RunServer() {
