@@ -1,1 +1,1 @@
-# Shorty
+# 👻 Shorty your links
